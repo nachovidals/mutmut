@@ -1,0 +1,25 @@
+
+NiCad Clone Detector v6.2 (13.11.20)
+
+config=./config/default-report.cfg
+system=/home/nacho/Documentos/software-reengineering
+threshold=0.30
+granularity=functions
+language=python
+transform=none
+rename=blind
+filter=none
+abstract=none
+normalize=none
+cluster=yes
+report=yes
+include=
+exclude=
+
+mar 16 abr 2024 16:51:05 CEST
+
+Extracting functions from python files in /home/nacho/Documentos/software-reengineering
+
+*** ERROR: Extraction failed, code 99
+Detailed log in /home/nacho/Documentos/software-reengineering_functions-clones-2024-04-16-16:51:05.log
+
