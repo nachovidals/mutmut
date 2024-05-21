@@ -43,6 +43,27 @@ class Line(db.Entity):
     line_number = Required(int)
     mutants = Set('Mutant')
 
+# applying the Iterable pattern
+class MutantCollection:
+    def __init__(self, mutants):
+        self.mutants = mutants
+    
+    def __iter__(self):
+        return MutantIterator(self.mutants)
+
+class MutantIterator:
+    def __init__(self, mutants):
+        self.mutants = mutants
+        self.index = 0
+
+    def __next__(self):
+        # here I can add some special logic to filter out some mutants
+        if self.index < len(self.mutants):
+            mutant = self.mutants[self.index]
+            self.index += 1
+            return mutant
+        else:
+            raise StopIteration
 
 class Mutant(db.Entity):
     line = Required(Line)

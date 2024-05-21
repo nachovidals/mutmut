@@ -33,7 +33,7 @@ from typing import Callable, Dict, Iterator, List, Optional, Set, Tuple
 from parso import parse
 from parso.python.tree import Name, Number, Keyword, FStringStart, FStringEnd
 
-__version__ = '2.4.4'
+__version__ = '2.4.5'
 
 
 if os.getcwd() not in sys.path:
@@ -698,7 +698,6 @@ def mutate_file(backup: bool, context: Context) -> Tuple[str, str]:
         f.write(mutated)
     return original, mutated
 
-
 def queue_mutants(
     *,
     progress: Progress,
@@ -706,7 +705,7 @@ def queue_mutants(
     mutants_queue,
     mutations_by_file: Dict[str, List[RelativeMutationID]],
 ):
-    from mutmut.cache import get_cached_mutation_statuses
+    from mutmut.cache import get_cached_mutation_statuses, MutantCollection
 
     try:
         index = 0
@@ -714,7 +713,10 @@ def queue_mutants(
             cached_mutation_statuses = get_cached_mutation_statuses(filename, mutations, config.hash_of_tests)
             with open(filename) as f:
                 source = f.read()
-            for mutation_id in mutations:
+
+            # changed for the mutation iterable pattern
+            mutants = []
+            for index, mutation_id in enumerate(mutations):
                 cached_status = cached_mutation_statuses.get(mutation_id)
                 if cached_status != UNTESTED:
                     progress.register(cached_status)
@@ -727,8 +729,12 @@ def queue_mutants(
                     source=source,
                     index=index,
                 )
+                mutants.append(context)
+
+            mutant_collection = MutantCollection(mutants)
+            for context in mutant_collection:
                 mutants_queue.put(('mutant', context))
-                index += 1
+
     finally:
         mutants_queue.put(('end', None))
 

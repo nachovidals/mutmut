@@ -5,7 +5,7 @@ config=./config/default-report.cfg
 system=/home/nacho/Documentos/software-reengineering
 threshold=0.30
 granularity=functions
-language=python
+language=py
 transform=none
 rename=blind
 filter=none
@@ -16,10 +16,33 @@ report=yes
 include=
 exclude=
 
-mar 16 abr 2024 16:51:05 CEST
+mié 17 abr 2024 00:16:42 CEST
 
-Extracting functions from python files in /home/nacho/Documentos/software-reengineering
+Extracting functions from py files in /home/nacho/Documentos/software-reengineering
 
-*** ERROR: Extraction failed, code 99
-Detailed log in /home/nacho/Documentos/software-reengineering_functions-clones-2024-04-16-16:51:05.log
+*** Warning: 430 source files failed to parse
+
+Extracted 4371 functions
+
+Applying blind renaming to extracted functions from py files in /home/nacho/Documentos/software-reengineering
+
+Finding clones between 10 and 2500 lines at UPI threshold 0.30
+
+Found 1892 clone pairs
+
+Clustering clone pairs into classes
+
+Clustered clone pairs into 57 classes
+
+Getting original sources for clones
+
+Making HTML reports
+
+Done.
+
+Detailed log in /home/nacho/Documentos/software-reengineering_functions-clones-2024-04-17-00:16:42.log
+Results in /home/nacho/Documentos/software-reengineering_functions-blind-clones/
+Report in /home/nacho/Documentos/software-reengineering_functions-blind-clones/software-reengineering_functions-blind-clones-0.30-classes-withsource.html
+
+mié 17 abr 2024 00:21:40 CEST
 
