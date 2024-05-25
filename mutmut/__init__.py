@@ -1146,6 +1146,10 @@ def run_mutation_tests(
 
     mutants_queue = mp_ctx.Queue(maxsize=100)
     add_to_active_queues(mutants_queue)
+    results_queue = mp_ctx.Queue(maxsize=100)
+    add_to_active_queues(results_queue)
+
+    # here we are calling the function that will queue the mutants with the collections
     queue_mutants_thread = Thread(
         target=queue_mutants,
         name='queue_mutants',
@@ -1158,9 +1162,6 @@ def run_mutation_tests(
         )
     )
     queue_mutants_thread.start()
-
-    results_queue = mp_ctx.Queue(maxsize=100)
-    add_to_active_queues(results_queue)
 
     def create_worker():
         t = mp_ctx.Process(
