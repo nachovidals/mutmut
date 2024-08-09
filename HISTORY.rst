@@ -1,6 +1,26 @@
 Changelog
 ---------
 
+2.5.0
+~~~~~
+
+* Add cli option to specify html report directory
+
+* Fix use patch file under Windows
+
+* Improve documentation about cache issues
+
+2.4.5
+~~~~~
+
+* Add skipped column in html index report
+
+* Untested/skipped in show all does not show skipped
+
+* mutmut should pick up the config before running the original tests. That allows to specify test suits you want to run
+
+* improved some high-level help text & documentation
+
 2.4.4
 ~~~~~
 

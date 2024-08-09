@@ -12,7 +12,7 @@ from typing import Tuple
 
 
 from junit_xml import TestSuite, TestCase, to_xml_report_string
-from pony.orm import Database, Required, db_session, Set, Optional, select, \
+from pony.orm import Database, Required, db_session, Set, Optional, \
     PrimaryKey, RowNotFound, ERDiagramError, OperationalError
 
 from mutmut import MUTANT_STATUSES, BAD_TIMEOUT, OK_SUSPICIOUS, BAD_SURVIVED, SKIPPED, UNTESTED, \
@@ -201,17 +201,17 @@ def print_result_cache(show_diffs=False, dict_synonyms=None, only_this_file=None
                 else:
                     print(ranges([x.id for x in mutants]))
 
-    print_stuff('Timed out ⏰', select(x for x in Mutant if x.status == BAD_TIMEOUT))
-    print_stuff('Suspicious 🤔', select(x for x in Mutant if x.status == OK_SUSPICIOUS))
-    print_stuff('Survived 🙁', select(x for x in Mutant if x.status == BAD_SURVIVED))
-    print_stuff('Untested/skipped', select(x for x in Mutant if x.status == UNTESTED or x.status == SKIPPED))
+    print_stuff('Timed out ⏰', (x for x in Mutant.select() if x.status == BAD_TIMEOUT))
+    print_stuff('Suspicious 🤔', (x for x in Mutant.select() if x.status == OK_SUSPICIOUS))
+    print_stuff('Survived 🙁', (x for x in Mutant.select() if x.status == BAD_SURVIVED))
+    print_stuff('Untested/skipped', (x for x in Mutant.select() if x.status == UNTESTED or x.status == SKIPPED))
 
 
 @init_db
 @db_session
 def print_result_ids_cache(desired_status):
     status = MUTANT_STATUSES[desired_status]
-    mutant_query = select(x for x in Mutant if x.status == status)
+    mutant_query = (x for x in Mutant.select() if x.status == status)
     print(" ".join(str(mutant.id) for mutant in mutant_query))
 
 
@@ -256,7 +256,7 @@ def print_result_cache_junitxml(dict_synonyms, suspicious_policy, untested_polic
 @db_session
 def create_junitxml_report(dict_synonyms, suspicious_policy, untested_policy):
     test_cases = []
-    mutant_list = list(select(x for x in Mutant))
+    mutant_list = list((x for x in Mutant.select()))
     for filename, mutants in groupby(mutant_list, key=lambda x: x.line.sourcefile.filename):
         for mutant in mutants:
             tc = TestCase("Mutant #{}".format(mutant.id), file=filename, line=mutant.line.line_number + 1, stdout=mutant.line.line)
@@ -281,20 +281,20 @@ def create_junitxml_report(dict_synonyms, suspicious_policy, untested_policy):
 
 @init_db
 @db_session
-def create_html_report(dict_synonyms):
-    mutants = sorted(list(select(x for x in Mutant)), key=lambda x: x.line.sourcefile.filename)
+def create_html_report(dict_synonyms, directory):
+    mutants = sorted(list((x for x in Mutant.select())), key=lambda x: x.line.sourcefile.filename)
 
-    os.makedirs('html', exist_ok=True)
+    os.makedirs(directory, exist_ok=True)
 
-    with open('html/index.html', 'w') as index_file:
+    with open(join(directory, 'index.html'), 'w') as index_file:
         index_file.write('<h1>Mutation testing report</h1>')
 
         index_file.write('Killed %s out of %s mutants' % (len([x for x in mutants if x.status == OK_KILLED]), len(mutants)))
 
-        index_file.write('<table><thead><tr><th>File</th><th>Total</th><th>Killed</th><th>% killed</th><th>Survived</th></thead>')
+        index_file.write('<table><thead><tr><th>File</th><th>Total</th><th>Skipped</th><th>Killed</th><th>% killed</th><th>Survived</th></thead>')
 
         for filename, mutants in groupby(mutants, key=lambda x: x.line.sourcefile.filename):
-            report_filename = join('html', filename)
+            report_filename = join(directory, filename)
 
             mutants = list(mutants)
 
@@ -314,10 +314,11 @@ def create_html_report(dict_synonyms):
                 killed = len(mutants_by_status[OK_KILLED])
                 f.write('Killed %s out of %s mutants' % (killed, len(mutants)))
 
-                index_file.write('<tr><td><a href="%s.html">%s</a></td><td>%s</td><td>%s</td><td>%.2f</td><td>%s</td>' % (
+                index_file.write('<tr><td><a href="%s.html">%s</a></td><td>%s</td><td>%s</td><td>%s</td><td>%.2f</td><td>%s</td>' % (
                     filename,
                     filename,
                     len(mutants),
+                    len(mutants_by_status[SKIPPED]),
                     killed,
                     (killed / len(mutants) * 100),
                     len(mutants_by_status[BAD_SURVIVED]),
@@ -344,6 +345,11 @@ def create_html_report(dict_synonyms):
                     f.write('<h2>Suspicious</h2>')
                     f.write('Mutants that made the test suite take longer, but otherwise seemed ok')
                     print_diffs(OK_SUSPICIOUS)
+
+                if mutants_by_status[SKIPPED]:
+                    f.write('<h2>Skipped</h2>')
+                    f.write('Mutants that were skipped')
+                    print_diffs(SKIPPED)
 
                 f.write('</body></html>')
 
