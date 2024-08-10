@@ -53,3 +53,5 @@ docs/tri*.rst
 
 # tests
 results/
+# for checking mutmut on codespaces
+project_test/
