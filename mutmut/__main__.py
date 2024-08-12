@@ -366,7 +366,7 @@ def do_run(
         output_legend = {key: key.upper() for (key, value) in output_legend.items()}
 
     print("""
-- Mutation testing starting maniiiiinnnnn-
+- Mutation testing starting -
 
 These are the steps:
 1. A full test suite run will be made to make sure we

@@ -37,7 +37,7 @@ from parso.tree import NodeOrLeaf
 
 from abc import ABC, abstractmethod
 
-__version__ = '2.5.0'
+__version__ = '2.5.0.1'
 
 
 if os.getcwd() not in sys.path:
