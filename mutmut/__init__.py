@@ -812,6 +812,8 @@ def run_mutation(context: Context, callback) -> str:
         return SKIPPED
 
     finally:
+
+        # problem here, backup ¿concurrence?
         move(context.filename + '.bak', context.filename)
         config.test_command = config._default_test_command  # reset test command to its default in the case it was altered in a hook
 
@@ -1134,14 +1136,19 @@ def run_mutation_tests(
 ):
     from mutmut.cache import update_mutant_status
 
+    # getting the number of cores for a good parallelism
+    num_cores = multiprocessing.cpu_count()
+
     # Need to explicitly use the spawn method for python < 3.8 on macOS
     mp_ctx = multiprocessing.get_context('spawn')
 
+    # shouldn't be changed, if we are using mp queues the locks are already, no need to create more queues
     mutants_queue = mp_ctx.Queue(maxsize=100)
     add_to_active_queues(mutants_queue)
     results_queue = mp_ctx.Queue(maxsize=100)
     add_to_active_queues(results_queue)
 
+    # because of mp queues we can use the same thread again for filling the queue
     # here we are calling the function that will queue the mutants with the collections
     queue_mutants_thread = Thread(
         target=queue_mutants,
@@ -1170,12 +1177,17 @@ def run_mutation_tests(
         t.start()
         return t
 
-    t = create_worker()
+    # we create the same workers as processes
+    workers = []
+    for _ in range(num_cores):
+        t = create_worker()
+        workers.append(t)
 
     while True:
         command, status, filename, mutation_id = results_queue.get()
         if command == 'end':
-            t.join()
+            for t in workers:
+                t.join()
             break
 
         elif command == 'cycle':
