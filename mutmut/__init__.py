@@ -1189,6 +1189,7 @@ def run_mutation_tests(
     for _ in range(num_cores):
         t = create_worker()
         workers.append(t)
+
     flag = True
     while flag:
         global active_process_count
@@ -1206,8 +1207,8 @@ def run_mutation_tests(
         if command == 'end':
             for t in workers:
                 if not t.is_alive():
-                    t.join()  # Ensure the process has fully completed
-                    workers.remove(t)  # Remove the finished process from the list
+                    t.join()  
+                    workers.remove(t)
                     break
             with process_lock:
                 active_process_count -= 1
@@ -1218,9 +1219,10 @@ def run_mutation_tests(
         elif command == 'cycle':
             for t in workers:
                 if not t.is_alive():
-                    t.join()  # Ensure the process has fully completed
-                    workers.remove(t)  # Remove the finished process from the list
+                    t.join()  
+                    workers.remove(t)
                     break
+                
             with process_lock:
                 active_process_count -= 1
             # Create a new worker to replace it
