@@ -5,6 +5,7 @@ import fnmatch
 import itertools
 import multiprocessing
 import os
+import queue
 import re
 import shlex
 import subprocess
@@ -681,14 +682,15 @@ def list_mutations(context: Context):
 
 
 def mutate_file(backup: bool, context: Context) -> Tuple[str, str]:
-    with open(context.filename) as f:
-        original = f.read()
-    if backup:
-        with open(context.filename + '.bak', 'w') as f:
-            f.write(original)
-    mutated, _ = mutate(context)
-    with open(context.filename, 'w') as f:
-        f.write(mutated)
+    with process_lock:  # Aseguramos que solo un proceso escriba/lea del archivo a la vez
+        with open(context.filename) as f:
+            original = f.read()
+        if backup:
+            with open(context.filename + '.bak', 'w') as f:
+                f.write(original)
+        mutated, _ = mutate(context)
+        with open(context.filename, 'w') as f:
+            f.write(mutated)
     return original, mutated
 
 def queue_mutants(
@@ -757,6 +759,10 @@ def check_mutants(mutants_queue, results_queue, cycle_process_after):
         if not did_cycle:
             results_queue.put(('end', None, None, None))
 
+from multiprocessing import Lock
+
+active_process_count = 0
+process_lock = multiprocessing.Lock()
 
 def run_mutation(context: Context, callback) -> str:
     """
@@ -784,15 +790,11 @@ def run_mutation(context: Context, callback) -> str:
             callback(result)
 
     try:
-        mutate_file(
-            backup=True,
-            context=context
-        )
+        mutate_file(backup=True, context=context)
         start = time()
         try:
             survived = tests_pass(config=config, callback=callback)
             if survived and config.test_command != config._default_test_command and config.rerun_all:
-                # rerun the whole test suite to be sure the mutant can not be killed by other tests
                 config.test_command = config._default_test_command
                 survived = tests_pass(config=config, callback=callback)
         except TimeoutError:
@@ -812,10 +814,9 @@ def run_mutation(context: Context, callback) -> str:
         return SKIPPED
 
     finally:
+        #move(context.filename + '.bak', context.filename)
 
-        # problem here, backup ¿concurrence?
-        move(context.filename + '.bak', context.filename)
-        config.test_command = config._default_test_command  # reset test command to its default in the case it was altered in a hook
+        config.test_command = config._default_test_command
 
         if config.post_mutation:
             result = subprocess.check_output(config.post_mutation, shell=True).decode().strip()
@@ -1128,6 +1129,8 @@ def hammett_tests_pass(config: Config, callback) -> bool:
 
 CYCLE_PROCESS_AFTER = 100
 
+active_process_count = 0
+process_lock = multiprocessing.Lock()
 
 def run_mutation_tests(
     config: Config,
@@ -1164,10 +1167,14 @@ def run_mutation_tests(
     queue_mutants_thread.start()
 
     def create_worker():
+        global active_process_count
+
+        with process_lock:
+            active_process_count += 1
         t = mp_ctx.Process(
             target=check_mutants,
             name='check_mutants',
-            daemon=True,
+            daemon=True, 
             kwargs=dict(
                 mutants_queue=mutants_queue,
                 results_queue=results_queue,
@@ -1182,17 +1189,43 @@ def run_mutation_tests(
     for _ in range(num_cores):
         t = create_worker()
         workers.append(t)
+    flag = True
+    while flag:
+        global active_process_count
+        try:
+            command, status, filename, mutation_id = results_queue.get(timeout=1)
+        except queue.Empty:
+            with process_lock:
+                active_process_count -= 1
+                if active_process_count == 0:
+                    flag = False
+                    continue
+                elif active_process_count < 0:
+                    continue
 
-    while True:
-        command, status, filename, mutation_id = results_queue.get()
         if command == 'end':
             for t in workers:
-                t.join()
-            break
+                if not t.is_alive():
+                    t.join()  # Ensure the process has fully completed
+                    workers.remove(t)  # Remove the finished process from the list
+                    break
+            with process_lock:
+                active_process_count -= 1
+                if active_process_count == 0:
+                    flag = False
+                    continue
 
         elif command == 'cycle':
+            for t in workers:
+                if not t.is_alive():
+                    t.join()  # Ensure the process has fully completed
+                    workers.remove(t)  # Remove the finished process from the list
+                    break
+            with process_lock:
+                active_process_count -= 1
+            # Create a new worker to replace it
             t = create_worker()
-
+            workers.append(t)
         elif command == 'progress':
             if not config.swallow_output:
                 print(status, end='', flush=True)
