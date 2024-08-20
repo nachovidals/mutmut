@@ -27,6 +27,7 @@ from shutil import (
 from threading import (
     Timer,
     Thread,
+    Semaphore,
 )
 from time import time
 from typing import Callable, Dict, Iterator, List, Optional, Set, Tuple, Any
@@ -682,15 +683,14 @@ def list_mutations(context: Context):
 
 
 def mutate_file(backup: bool, context: Context) -> Tuple[str, str]:
-    with process_lock:  # Aseguramos que solo un proceso escriba/lea del archivo a la vez
-        with open(context.filename) as f:
-            original = f.read()
-        if backup:
-            with open(context.filename + '.bak', 'w') as f:
-                f.write(original)
-        mutated, _ = mutate(context)
-        with open(context.filename, 'w') as f:
-            f.write(mutated)
+    with open(context.filename) as f:
+        original = f.read()
+    if backup:
+        with open(context.filename + '.bak', 'w') as f:
+            f.write(original)
+    mutated, _ = mutate(context)
+    with open(context.filename, 'w') as f:
+        f.write(mutated)
     return original, mutated
 
 def queue_mutants(
@@ -734,7 +734,7 @@ def queue_mutants(
         mutants_queue.put(('end', None))
 
 
-def check_mutants(mutants_queue, results_queue, cycle_process_after):
+def check_mutants(mutants_queue, results_queue, cycle_process_after, lock):
     def feedback(line):
         results_queue.put(('progress', line, None, None))
 
@@ -743,18 +743,29 @@ def check_mutants(mutants_queue, results_queue, cycle_process_after):
     try:
         count = 0
         while True:
-            command, context = mutants_queue.get()
-            if command == 'end':
-                break
+            with lock:
+                try:
+                    #print(f"Process {multiprocessing.current_process().name} entered the lock.")
+                    
+                    # covered by multiprocessing queue
+                    command, context = mutants_queue.get()
+                    if command == 'end':
+                        break
+                    
+                    # not covered by mp 
+                    status = run_mutation(context, feedback)
 
-            status = run_mutation(context, feedback)
-
-            results_queue.put(('status', status, context.filename, context.mutation_id))
-            count += 1
-            if count == cycle_process_after:
-                results_queue.put(('cycle', None, None, None))
-                did_cycle = True
-                break
+                    # covered by mp queue
+                    results_queue.put(('status', status, context.filename, context.mutation_id))
+                    # not covered by mp queue
+                    count += 1
+                    if count == cycle_process_after:
+                        results_queue.put(('cycle', None, None, None))
+                        did_cycle = True
+                        break
+                    #print(f"Process {multiprocessing.current_process().name} leaving the lock.")
+                finally:
+                    pass
     finally:
         if not did_cycle:
             results_queue.put(('end', None, None, None))
@@ -762,7 +773,6 @@ def check_mutants(mutants_queue, results_queue, cycle_process_after):
 from multiprocessing import Lock
 
 active_process_count = 0
-process_lock = multiprocessing.Lock()
 
 def run_mutation(context: Context, callback) -> str:
     """
@@ -788,7 +798,6 @@ def run_mutation(context: Context, callback) -> str:
         result = subprocess.check_output(config.pre_mutation, shell=True).decode().strip()
         if result and not config.swallow_output:
             callback(result)
-
     try:
         mutate_file(backup=True, context=context)
         start = time()
@@ -814,8 +823,7 @@ def run_mutation(context: Context, callback) -> str:
         return SKIPPED
 
     finally:
-        #move(context.filename + '.bak', context.filename)
-
+        move(context.filename + '.bak', context.filename)
         config.test_command = config._default_test_command
 
         if config.post_mutation:
@@ -1151,6 +1159,9 @@ def run_mutation_tests(
     results_queue = mp_ctx.Queue(maxsize=100)
     add_to_active_queues(results_queue)
 
+    # shared lock, otherwise wont work
+    mp_lock = mp_ctx.Lock()
+
     # because of mp queues we can use the same thread again for filling the queue
     # here we are calling the function that will queue the mutants with the collections
     queue_mutants_thread = Thread(
@@ -1166,19 +1177,22 @@ def run_mutation_tests(
     )
     queue_mutants_thread.start()
 
-    def create_worker():
+    def create_worker(mp_lock):
         global active_process_count
 
         with process_lock:
+            #print('Reservo process_lock')
             active_process_count += 1
+            #print('Libero process_lock')
         t = mp_ctx.Process(
             target=check_mutants,
-            name='check_mutants',
+            name='check_mutants' + '{}'.format(active_process_count),
             daemon=True, 
             kwargs=dict(
                 mutants_queue=mutants_queue,
                 results_queue=results_queue,
                 cycle_process_after=CYCLE_PROCESS_AFTER,
+                lock=mp_lock,
             )
         )
         t.start()
@@ -1187,7 +1201,7 @@ def run_mutation_tests(
     # we create the same workers as processes
     workers = []
     for _ in range(num_cores):
-        t = create_worker()
+        t = create_worker(mp_lock=mp_lock)
         workers.append(t)
 
     flag = True
@@ -1200,10 +1214,7 @@ def run_mutation_tests(
                 active_process_count -= 1
                 if active_process_count == 0:
                     flag = False
-                    continue
-                elif active_process_count < 0:
-                    continue
-
+                continue
         if command == 'end':
             for t in workers:
                 if not t.is_alive():
@@ -1226,7 +1237,7 @@ def run_mutation_tests(
             with process_lock:
                 active_process_count -= 1
             # Create a new worker to replace it
-            t = create_worker()
+            t = create_worker(mp_lock)
             workers.append(t)
         elif command == 'progress':
             if not config.swallow_output:
