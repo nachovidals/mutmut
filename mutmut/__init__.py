@@ -247,6 +247,14 @@ class NumberMutationStrategy(MutationStrategy):
             result += suffix
         return result
 
+def partition_node_list(nodes, value):
+    for i, n in enumerate(nodes):
+        if hasattr(n, 'value') and n.value == value:
+            return nodes[:i], n, nodes[i + 1:]
+
+    assert False, "didn't find node to split on"
+
+
 class StringMutationStrategy(MutationStrategy):
     def mutate(self, node, value: str = None, **kwargs) -> str:
         prefix = value[:min(x for x in [value.find('"'), value.find("'")] if x != -1)]
@@ -743,29 +751,29 @@ def check_mutants(mutants_queue, results_queue, cycle_process_after, lock):
     try:
         count = 0
         while True:
-            with lock:
-                try:
-                    #print(f"Process {multiprocessing.current_process().name} entered the lock.")
-                    
-                    # covered by multiprocessing queue
-                    command, context = mutants_queue.get()
-                    if command == 'end':
-                        break
-                    
-                    # not covered by mp 
+            try:
+                #print(f"Process {multiprocessing.current_process().name} entered the lock.")
+                
+                # covered by multiprocessing queue
+                command, context = mutants_queue.get()
+                if command == 'end':
+                    break
+                
+                # not covered by mp 
+                with lock:
                     status = run_mutation(context, feedback)
 
-                    # covered by mp queue
-                    results_queue.put(('status', status, context.filename, context.mutation_id))
-                    # not covered by mp queue
-                    count += 1
-                    if count == cycle_process_after:
-                        results_queue.put(('cycle', None, None, None))
-                        did_cycle = True
-                        break
-                    #print(f"Process {multiprocessing.current_process().name} leaving the lock.")
-                finally:
-                    pass
+                # covered by mp queue
+                results_queue.put(('status', status, context.filename, context.mutation_id))
+                # not covered by mp queue
+                count += 1
+                if count == cycle_process_after:
+                    results_queue.put(('cycle', None, None, None))
+                    did_cycle = True
+                    break
+                #print(f"Process {multiprocessing.current_process().name} leaving the lock.")
+            finally:
+                pass
     finally:
         if not did_cycle:
             results_queue.put(('end', None, None, None))
