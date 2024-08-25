@@ -2,12 +2,23 @@
 import os
 from pathlib import Path
 from time import sleep
+from mutmut.cache import Mutant, MutantCollection, MutantIterator
 from pytest import raises, fixture
 from unittest.mock import MagicMock, patch
 
 from mutmut import (
-    partition_node_list,
+    AndOrTestMutationStrategy,
+    ArgumentMutationStrategy,
+    DecoratorMutationStrategy,
+    ExpressionMutationStrategy,
+    FstringMutationStrategy,
+    KeywordMutationStrategy,
+    LambdaMutationStrategy,
     NameMutationStrategy,
+    OperatorMutationStrategy,
+    NumberMutationStrategy,
+    StringMutationStrategy,
+    partition_node_list,
     run_mutation_tests,
     check_mutants,
     close_active_queues,
@@ -23,7 +34,8 @@ def test_partition_node_list_no_nodes():
 
 
 def test_name_mutation_simple_mutants():
-    assert NameMutationStrategy.mutate(None, 'True') == 'False'
+    strategy = NameMutationStrategy()
+    assert strategy.mutate(node=None, value='True') == 'False'
 
 
 def test_context_exclude_line():
@@ -194,3 +206,175 @@ def test_read_patch_data_mutliple_files(testpatches_path: Path):
 
     # assert
     assert actual_changes == expected_changes
+
+# extension
+
+# ---------------------- number -------------------------
+def test_number_mutation_positive_integer():
+    strategy = NumberMutationStrategy()
+    result = strategy.mutate(node=None, value='42')
+    assert result == '43'
+
+# ---------------------- string -------------------------
+def test_string_mutation_simple():
+    strategy = StringMutationStrategy()
+    result = strategy.mutate(node=None, value='"hello"')
+    assert result == '"XXhelloXX"'
+
+# ---------------------- keyword ------------------------
+def test_keyword_mutation_is_to_is_not():
+    strategy = KeywordMutationStrategy()
+
+    # is --> is not
+    context = MagicMock()
+    context.stack = [MagicMock(), MagicMock()]
+    context.stack[-2].type = 'comp_op'
+
+    result = strategy.mutate(node=None, value='is', context=context)
+
+    assert result == 'is not'
+
+# ---------------------- operator -----------------------
+def test_operator_mutation_plus_to_minus():
+    strategy = OperatorMutationStrategy()
+
+    context = MagicMock()
+    # with None is not working
+    node = MagicMock()
+
+    result = strategy.mutate(node=node, value='+', context=context)
+
+    assert result == '-'
+
+# ---------------------- name ---------------------------
+def test_name_mutation_true_to_false():
+    strategy = NameMutationStrategy()
+
+    context = MagicMock()
+    node = MagicMock()
+    value = 'True'
+
+    result = strategy.mutate(node=node, value=value, context=context)
+
+    assert result == 'False'
+
+
+# ---------------------- andortest ----------------------
+def test_and_to_or_mutation():
+    strategy = AndOrTestMutationStrategy()
+
+    # x and y --> x or y
+    node = MagicMock()
+    children = [
+        MagicMock(type='name', value='x'),
+        MagicMock(type='keyword', value='and'),
+        MagicMock(type='name', value='y')
+    ]
+
+    result = strategy.mutate(node=node, children=children)
+
+    assert result is not None
+    # should have a space because of the mutation
+    assert result[1].value == ' or'
+
+def test_or_to_and_mutation():
+    strategy = AndOrTestMutationStrategy()
+
+    node = MagicMock()
+    children = [
+        MagicMock(type='name', value='x'),
+        MagicMock(type='keyword', value='or'),
+        MagicMock(type='name', value='y')
+    ]
+
+    result = strategy.mutate(node=node, children=children)
+
+    assert result is not None
+    assert result[1].value == ' and'
+
+# ---------------------- lambda -------------------------
+def test_lambda_with_returning_none():
+    strategy = LambdaMutationStrategy()
+
+    # x: None, lambda function
+    node = MagicMock()
+    children = [
+        MagicMock(type='parameters', value='x'),
+        MagicMock(type='operator', value=':'),
+        MagicMock(type='name', value='None')
+    ]
+
+    result = strategy.mutate(node=node, value=':', children=children)
+
+    assert result is not None
+    # again the space
+    assert result[-1].value == ' 0'
+
+def test_lambda_with_returning_value():
+    strategy = LambdaMutationStrategy()
+
+    # x: 5
+    node = MagicMock()
+    children = [
+        MagicMock(type='parameters', value='x'),
+        MagicMock(type='operator', value=':'),
+        MagicMock(type='name', value='5')
+    ]
+
+    result = strategy.mutate(node=node, value=':', children=children)
+
+    assert result is not None
+    # the space another time
+    assert result[-1].value == ' None'
+
+# expression
+def test_expression_mutation_simple_assignment():
+    strategy = ExpressionMutationStrategy()
+
+    # x = 10
+    node = MagicMock()
+    children = [
+        MagicMock(type='name', value='x'),
+        MagicMock(type='operator', value='='),
+        MagicMock(type='name', value='10')
+    ]
+
+    result = strategy.mutate(node=node, children=children)
+
+    assert result is not None
+    # last one None --> x = None
+    assert result[-1].value == ' None'
+
+
+# decorator
+def test_decorator_mutation_single_decorator():
+    strategy = DecoratorMutationStrategy()
+
+    
+    node = MagicMock()
+    # decorator + newline (empty)    
+    children = [
+        MagicMock(type='decorator', value='@my_decorator'),
+        MagicMock(type='newline', value='\n')
+    ]
+
+    result = strategy.mutate(node=node, children=children)
+
+    assert result is not None
+    # only one result (decorator deleted)
+    assert len(result) == 1
+    # the only node should be what was below decorator (newline)
+    assert result[0].type == 'newline'
+
+# iterator
+def test_iterator ():
+    # contexts for checking collection iterated == list of context
+    context1 = Context()  
+    context2 = Context()
+    context3 = Context()
+    
+    mutations = [context1, context2, context3]  
+    collection = MutantCollection(mutations)
+    
+    result = [mutant for mutant in collection]
+    assert result == mutations
